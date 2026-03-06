@@ -263,35 +263,6 @@ const db = await openDatabase("app.db", { tableName: "agent_files" });
 
 Works with all approaches: constructors, Drizzle (`createNodesTable("agent_files")`), and raw SQL (`getPostgresSchema("agent_files")`).
 
-## Safety
-
-- **File size limits**: Default 10 MB max per file. Configure via `new FileSystem(db, userId, { maxFileSize: ... })`.
-- **Optimistic locking**: Concurrent edits are detected and rejected (version-checked at the DB level).
-- **SQL injection prevention**: Parameterized queries everywhere. Table names validated against a strict regex whitelist.
-- **Tenant isolation**: All queries scoped by `user_id`. No cross-tenant access possible at the DB layer.
-
-## API
-
-### `openDatabase(pathOrUrl, options?): Promise<Database>`
-
-Auto-detects SQLite (file path) or Postgres (connection URL). Creates the table automatically.
-
-### `new FileSystem(db, userId, options?)`
-
-Creates a user-scoped filesystem. Options: `{ maxFileSize?: number }` (default 10 MB).
-
-### `callTool(fs, name, args): Promise<ToolResult>`
-
-Dispatches a tool call by name. Returns `{ text: string, isError?: boolean }`. Never throws.
-
-## Development
-
-```bash
-npm install
-npm run build
-npm test          # 85 tests
-```
-
 ## License
 
 MIT
