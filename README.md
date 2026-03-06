@@ -1,8 +1,8 @@
-# memoryfs
+# agent-vfs
 
 The best AI agents already use filesystems as memory. Now your agent can too.
 
-memoryfs gives your agent a persistent virtual filesystem backed by your own database. Agents use familiar file operations (`read`, `write`, `ls`, `grep`) while data lives in SQLite or Postgres.
+agent-vfs gives your agent a persistent virtual filesystem backed by your own database. Agents use familiar file operations (`read`, `write`, `ls`, `grep`) while data lives in SQLite or Postgres.
 
 ```bash
 npm install agent-vfs better-sqlite3
@@ -14,7 +14,7 @@ import { FileSystem, openDatabase } from "agent-vfs";
 const db = await openDatabase("memory.db"); // SQLite, auto-creates table
 const fs = new FileSystem(db, "agent-1");
 
-await fs.write("/notes.md", "# Meeting Notes\n- Ship memoryfs");
+await fs.write("/notes.md", "# Meeting Notes\n- Ship agent-vfs");
 const content = await fs.read("/notes.md");
 ```
 
@@ -24,7 +24,7 @@ Persistent memory that survives restarts, multi-tenant by default, no external s
 
 Agents like Claude Code already store memory in files (`~/.claude/`). The pattern works because agents understand files natively. No new API to learn, no retrieval pipeline to build.
 
-A real filesystem per user doesn't work well in production (isolation, backups, scaling). memoryfs gives you the same interface backed by a single database table. No API keys, no hosted service, just a library.
+A real filesystem per user doesn't work well in production (isolation, backups, scaling). agent-vfs gives you the same interface backed by a single database table. No API keys, no hosted service, just a library.
 
 ## Use with any AI SDK
 

@@ -8,7 +8,7 @@ import { tools as rawTools, callTool } from "./tools.js";
  * Drop directly into generateText/streamText.
  *
  * ```ts
- * import { createTools } from "memoryfs/ai";
+ * import { createTools } from "agent-vfs/ai";
  * const tools = createTools(fs);
  * await generateText({ model, tools, prompt });
  * ```

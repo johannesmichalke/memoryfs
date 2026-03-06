@@ -9,10 +9,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Create a Drizzle table definition for memoryfs with a custom table name.
+ * Create a Drizzle table definition for agent-vfs with a custom table name.
  *
  * ```ts
- * import { createNodesTable } from "memoryfs/drizzle";
+ * import { createNodesTable } from "agent-vfs/drizzle";
  * export const agentFiles = createNodesTable("agent_files");
  * ```
  */
@@ -47,7 +47,7 @@ export function createNodesTable(tableName: string = "nodes") {
  *
  * ```ts
  * // schema.ts
- * import { nodesTable } from "memoryfs/drizzle";
+ * import { nodesTable } from "agent-vfs/drizzle";
  * export { nodesTable };
  * // ...your own tables
  * ```

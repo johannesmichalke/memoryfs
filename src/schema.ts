@@ -1,5 +1,5 @@
 /**
- * Raw SQL schemas for the memoryfs nodes table.
+ * Raw SQL schemas for the agent-vfs nodes table.
  *
  * Use `getSqliteSchema()` / `getPostgresSchema()` with a custom table name,
  * or import the default `sqliteSchema` / `postgresSchema` constants.
