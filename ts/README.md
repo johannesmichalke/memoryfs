@@ -1,0 +1,268 @@
+# agent-vfs
+
+The best AI agents already use filesystems as memory. Now your agent can too.
+
+agent-vfs gives your agent a persistent virtual filesystem backed by your own database. Agents use familiar file operations (`read`, `write`, `ls`, `grep`) while data lives in SQLite or Postgres.
+
+```bash
+npm install agent-vfs better-sqlite3
+```
+
+```ts
+import { FileSystem, openDatabase } from "agent-vfs";
+
+const db = await openDatabase("memory.db"); // SQLite, auto-creates table
+const fs = new FileSystem(db, "agent-1");
+
+await fs.write("/notes.md", "# Meeting Notes\n- Ship agent-vfs");
+const content = await fs.read("/notes.md");
+```
+
+Persistent memory that survives restarts, multi-tenant by default, no external services. One table in your database.
+
+## Why filesystems?
+
+Agents like Claude Code already store memory in files (`~/.claude/`). The pattern works because agents understand files natively. No new API to learn, no retrieval pipeline to build.
+
+A real filesystem per user doesn't work well in production (isolation, backups, scaling). agent-vfs gives you the same interface backed by a single database table. No API keys, no hosted service, just a library.
+
+## Use with any AI SDK
+
+### Vercel AI SDK
+
+```ts
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { FileSystem, openDatabase } from "agent-vfs";
+import { createTools } from "agent-vfs/ai";
+
+const db = await openDatabase("memory.db");
+const fs = new FileSystem(db, userId);
+
+const { text } = await generateText({
+  model: openai("gpt-4o"),
+  tools: createTools(fs),
+  prompt: "Save my preferences, then list all files",
+});
+```
+
+### OpenAI SDK
+
+```ts
+import OpenAI from "openai";
+import { FileSystem, openDatabase, openai } from "agent-vfs";
+
+const db = await openDatabase("memory.db");
+const fs = new FileSystem(db, userId);
+const { tools, handleToolCall } = openai(fs);
+
+const response = await new OpenAI().chat.completions.create({
+  model: "gpt-4o",
+  messages,
+  tools,
+});
+
+for (const call of response.choices[0].message.tool_calls ?? []) {
+  const result = await handleToolCall(call.function.name, call.function.arguments);
+  messages.push({ role: "tool", tool_call_id: call.id, content: result.text });
+}
+```
+
+### Anthropic SDK
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { FileSystem, openDatabase, anthropic } from "agent-vfs";
+
+const db = await openDatabase("memory.db");
+const fs = new FileSystem(db, userId);
+const { tools, handleToolCall } = anthropic(fs);
+
+const response = await new Anthropic().messages.create({
+  model: "claude-sonnet-4-20250514",
+  max_tokens: 1024,
+  messages,
+  tools,
+});
+
+for (const block of response.content) {
+  if (block.type === "tool_use") {
+    const result = await handleToolCall(block.name, block.input);
+    messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: block.id, content: result.text }] });
+  }
+}
+```
+
+### Direct tool access
+
+```ts
+import { tools, callTool, getTool } from "agent-vfs";
+
+const readTool = getTool("read");
+await readTool.call(fs, { path: "/notes.md" }); // { text: "...", isError?: boolean }
+
+// Or dispatch by name
+const result = await callTool(fs, "write", { path: "/notes.md", content: "hello" });
+```
+
+## Example: chat agent with persistent memory
+
+The most common pattern is an agent that loads its memory at the start of each session, then reads and writes files as it chats.
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { FileSystem, openDatabase, anthropic } from "agent-vfs";
+
+const db = await openDatabase("memory.db");
+const fs = new FileSystem(db, userId);
+const { tools, handleToolCall } = anthropic(fs);
+
+// Boot: load the agent's memory into the system prompt
+let memory = "";
+try {
+  memory = await fs.read("/memory.md");
+} catch {
+  memory = "(no memory yet)";
+}
+
+const messages: Anthropic.MessageParam[] = [];
+const system = `You are a helpful assistant with persistent memory.
+Your current memory:
+${memory}
+
+You have filesystem tools. Use them to remember things across sessions.
+Save important facts to /memory.md. Organize notes in folders as needed.`;
+
+// Chat loop
+while (true) {
+  const userInput = await getInput(); // your input method
+  messages.push({ role: "user", content: userInput });
+
+  let response = await new Anthropic().messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 4096,
+    system,
+    messages,
+    tools,
+  });
+
+  // Handle tool calls until the model is done
+  while (response.stop_reason === "tool_use") {
+    const toolResults: Anthropic.MessageParam = { role: "user", content: [] };
+    for (const block of response.content) {
+      if (block.type === "tool_use") {
+        const result = await handleToolCall(block.name, block.input);
+        (toolResults.content as Anthropic.ToolResultBlockParam[]).push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: result.text,
+        });
+      }
+    }
+    messages.push({ role: "assistant", content: response.content });
+    messages.push(toolResults);
+    response = await new Anthropic().messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system,
+      messages,
+      tools,
+    });
+  }
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  console.log(text);
+  messages.push({ role: "assistant", content: response.content });
+}
+```
+
+The agent will automatically use `write`, `read`, `ls`, and other tools to manage its own memory. On the next session, the boot step loads everything back.
+
+## Tools (11)
+
+Full tool schemas (the exact JSON your model receives) are documented in [docs/tools.md](docs/tools.md).
+
+| Tool | Description | Key Options |
+|------|-------------|-------------|
+| `read` | Read a file | `offset`, `limit` (line range) |
+| `write` | Write a file (auto-creates parent dirs) | |
+| `edit` | Find-and-replace (unique match required) | |
+| `multi_edit` | Multiple find-and-replace edits in one call | |
+| `append` | Append to a file (creates if missing) | |
+| `ls` | List directory | `recursive` |
+| `mkdir` | Create directory (idempotent, creates parents) | |
+| `rm` | Remove file or directory (recursive) | |
+| `grep` | Search file contents (regex) | `case_insensitive` |
+| `glob` | Find files by name (glob pattern) | `type` (file/dir) |
+| `mv` | Move or rename (overwrites target) | |
+
+## Multi-tenancy
+
+One database, many users. Each `FileSystem` is scoped by user ID with full isolation at the DB layer:
+
+```ts
+const db = await openDatabase("memory.db");
+const aliceFs = new FileSystem(db, "alice");
+const bobFs   = new FileSystem(db, "bob");
+
+await aliceFs.write("/secret.txt", "alice only");
+await bobFs.read("/secret.txt"); // throws NotFoundError
+```
+
+## Production database
+
+In production you likely already have a Postgres database.
+
+**Option A: Drizzle**
+
+```ts
+// db/schema.ts - add to your existing Drizzle schema
+import { nodesTable } from "agent-vfs/drizzle";
+export { nodesTable };
+```
+
+```bash
+npx drizzle-kit generate && npx drizzle-kit migrate
+```
+
+```ts
+import { PostgresDatabase, FileSystem } from "agent-vfs";
+const db = new PostgresDatabase(existingPool); // your existing pg.Pool
+const fs = new FileSystem(db, userId);
+```
+
+**Option B: Raw SQL**
+
+```ts
+import { postgresSchema } from "agent-vfs/schema";
+// Add to your migration tool, or:
+const db = new PostgresDatabase(pool);
+await db.initialize(); // CREATE TABLE IF NOT EXISTS
+```
+
+**Option C: Custom adapter**
+
+```ts
+import type { Database } from "agent-vfs";
+
+class MyDatabase implements Database {
+  async getNode(userId, path) { /* ... */ }
+  async upsertNode(node) { /* ... */ }
+  // 12 methods total
+}
+```
+
+### Custom table name
+
+```ts
+const db = await openDatabase("app.db", { tableName: "agent_files" });
+```
+
+Works with all approaches: constructors, Drizzle (`createNodesTable("agent_files")`), and raw SQL (`getPostgresSchema("agent_files")`).
+
+## License
+
+MIT
